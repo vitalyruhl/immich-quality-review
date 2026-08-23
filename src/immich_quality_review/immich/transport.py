@@ -14,6 +14,7 @@ class HttpRequest:
     headers: Mapping[str, str] = field(repr=False)
     timeout_seconds: float
     max_response_bytes: int
+    body: bytes | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
