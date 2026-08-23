@@ -6,8 +6,8 @@ Thank you for helping improve `immich-quality-review`.
 
 1. Check existing issues before starting a larger change.
 2. Fork the repository and create a focused branch.
-3. Install the development dependencies with `python -m pip install -e ".[dev]"`.
-4. Run `pytest`, `ruff check .`, and `ruff format --check .`.
+3. Synchronize the locked development environment with `uv sync --frozen`.
+4. Run `uv run ruff check .`, `uv run ruff format --check .`, `uv run pytest`, and `uv build`.
 5. Open a pull request using the provided template.
 
 ## Contribution expectations

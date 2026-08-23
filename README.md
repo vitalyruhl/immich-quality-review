@@ -32,13 +32,11 @@ See [the architecture note](docs/architecture.md) for the intended boundaries.
 Python 3.12 or newer is required.
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-pytest
-ruff check .
-ruff format --check .
+uv sync --frozen
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest
+uv build
 ```
 
 Docker is planned as the primary deployment method. The bootstrap image is intentionally minimal:

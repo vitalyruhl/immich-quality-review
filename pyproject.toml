@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = []
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "pytest>=8.0",
   "ruff>=0.9",
@@ -47,3 +47,6 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.uv]
+required-version = "==0.12.5"
