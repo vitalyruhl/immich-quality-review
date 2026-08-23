@@ -50,7 +50,9 @@ other asset types, archive/hidden/locked visibility, trashed assets, offline
 assets, and malformed required fields are excluded or rejected at the adapter
 boundary according to their category.
 
-Each traversal captures one fixed upper timestamp. Incremental traversal starts
+Each traversal captures one fixed upper timestamp. The API's numeric-string
+`nextPage` continuation is validated and normalized into the local cursor.
+Incremental traversal starts
 at the previous completed checkpoint minus a one-second overlap. Every page
 reuses that same window. The versioned URL-safe cursor contains only its next
 page and window boundaries; a terminal page returns the upper boundary as its

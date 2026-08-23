@@ -15,7 +15,7 @@ from immich_quality_review.application.discovery import (
     DiscoveryPage,
 )
 
-from .client import ImmichClient
+from .client import MAX_IMMICH_PAGE, ImmichClient
 
 type AssetRecord = tuple[
     str,
@@ -58,9 +58,11 @@ class DiscoveryCursor:
     upper: datetime
 
     def __post_init__(self) -> None:
-        if isinstance(self.next_page, bool) or not isinstance(self.next_page, int):
-            raise ValueError("next_page must be a positive integer")
-        if self.next_page <= 0:
+        if (
+            isinstance(self.next_page, bool)
+            or not isinstance(self.next_page, int)
+            or not 1 <= self.next_page <= MAX_IMMICH_PAGE
+        ):
             raise ValueError("next_page must be a positive integer")
         _validate_cursor_datetime(self.upper)
         if self.lower is not None:
@@ -121,7 +123,11 @@ class DiscoveryCursorCodec:
         if payload["version"] != cls.VERSION or isinstance(payload["version"], bool):
             raise DiscoveryCursorError
         next_page = payload["nextPage"]
-        if isinstance(next_page, bool) or not isinstance(next_page, int) or next_page <= 0:
+        if (
+            isinstance(next_page, bool)
+            or not isinstance(next_page, int)
+            or not 1 <= next_page <= MAX_IMMICH_PAGE
+        ):
             raise DiscoveryCursorError
         lower = _parse_cursor_datetime(payload["lower"], allow_none=True)
         upper = _parse_cursor_datetime(payload["upper"], allow_none=False)
@@ -206,11 +212,14 @@ class ImmichDiscovery:
         if not isinstance(upper, datetime) or upper.tzinfo is None or upper.utcoffset() is None:
             raise ValueError("clock must return a timezone-aware datetime")
         upper = upper.astimezone(UTC)
-        lower = (
-            None
-            if checkpoint is None
-            else checkpoint.completed_through.astimezone(UTC) - self.OVERLAP
-        )
+        try:
+            lower = (
+                None
+                if checkpoint is None
+                else checkpoint.completed_through.astimezone(UTC) - self.OVERLAP
+            )
+        except OverflowError:
+            raise DiscoveryProtocolError from None
         try:
             state = DiscoveryCursor(next_page=1, lower=lower, upper=upper)
         except ValueError:
@@ -230,11 +239,10 @@ class ImmichDiscovery:
         items = assets_payload["items"]
         if not isinstance(items, list):
             raise DiscoveryProtocolError
-        next_page = assets_payload.get("nextPage")
-        if next_page is not None and (
-            isinstance(next_page, bool) or not isinstance(next_page, int) or next_page <= 0
-        ):
+        if "nextPage" not in assets_payload:
             raise DiscoveryProtocolError
+        raw_next_page = assets_payload["nextPage"]
+        next_page = None if raw_next_page is None else _parse_next_page(raw_next_page)
 
         records: dict[str, AssetRecord] = {}
         for item in items:
@@ -262,12 +270,17 @@ class ImmichDiscovery:
         if (
             not isinstance(asset_id, str)
             or not asset_id.strip()
+            or asset_id != asset_id.strip()
             or not isinstance(asset_type, str)
+            or asset_type not in {"IMAGE", "VIDEO", "AUDIO", "OTHER"}
             or not isinstance(visibility, str)
+            or visibility not in {"archive", "timeline", "hidden", "locked"}
             or not isinstance(mime_type, str)
             or not mime_type.strip()
+            or mime_type != mime_type.strip()
         ):
             raise DiscoveryProtocolError
+        _validate_mime_type(mime_type)
         if not isinstance(item["isTrashed"], bool) or not isinstance(item["isOffline"], bool):
             raise DiscoveryProtocolError
         created_at = _parse_response_datetime(item["createdAt"])
@@ -384,6 +397,34 @@ def _parse_response_datetime(value: object) -> datetime:
 def _parse_dimension(value: object) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_IMMICH_PAGE:
         raise DiscoveryProtocolError
     return value
+
+
+def _parse_next_page(value: object) -> int:
+    if isinstance(value, bool):
+        raise DiscoveryProtocolError
+    if isinstance(value, int):
+        next_page = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value) is not None:
+        if len(value) > len(str(MAX_IMMICH_PAGE)):
+            raise DiscoveryProtocolError
+        next_page = int(value)
+    else:
+        raise DiscoveryProtocolError
+    if not 1 <= next_page <= MAX_IMMICH_PAGE:
+        raise DiscoveryProtocolError
+    return next_page
+
+
+def _validate_mime_type(value: str) -> None:
+    media_type, separator, subtype = value.partition("/")
+    if (
+        not separator
+        or not media_type
+        or not subtype
+        or "/" in subtype
+        or any(character.isspace() for character in value)
+    ):
+        raise DiscoveryProtocolError

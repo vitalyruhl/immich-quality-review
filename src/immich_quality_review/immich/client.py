@@ -11,6 +11,8 @@ from immich_quality_review.application.integration import IntegrationCapabilitie
 
 from .transport import HttpRequest, HttpResponse, ImmichTransport, TransportTimeoutError
 
+MAX_IMMICH_PAGE = 9_007_199_254_740_991
+
 
 @dataclass(frozen=True, slots=True)
 class ServerVersion:
@@ -115,7 +117,7 @@ class ImmichClient:
         updated_before: datetime | None = None,
     ) -> dict[str, Any]:
         """Search the bounded timeline-image metadata contract."""
-        if isinstance(page, bool) or not isinstance(page, int) or page < 1:
+        if isinstance(page, bool) or not isinstance(page, int) or not 1 <= page <= MAX_IMMICH_PAGE:
             raise ValueError("page must be a positive integer")
         if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= 1000:
             raise ValueError("size must be between 1 and 1000")

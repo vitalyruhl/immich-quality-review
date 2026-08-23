@@ -238,7 +238,7 @@ def test_search_assets_serializes_incremental_filters_as_normalized_utc_rfc3339(
     )
 
 
-@pytest.mark.parametrize("page", [0, -1, 2.5, True])
+@pytest.mark.parametrize("page", [0, -1, 2.5, True, 9_007_199_254_740_992])
 def test_search_assets_rejects_invalid_pages(page: object) -> None:
     with pytest.raises(ValueError):
         make_client(FakeTransport([])).search_assets(page=page, size=100)  # type: ignore[arg-type]

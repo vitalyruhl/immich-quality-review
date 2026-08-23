@@ -150,13 +150,33 @@ def test_empty_non_terminal_page_is_valid() -> None:
     assert page.completed_checkpoint is None
 
 
-def test_missing_next_page_marks_an_empty_response_terminal() -> None:
-    client = FakeClient([{"assets": {"items": []}}])
+def test_empty_terminal_page_returns_the_completed_checkpoint() -> None:
+    client = FakeClient([search_response([])])
 
     page = make_discovery(client).discover_page(cursor=None, checkpoint=None, limit=10)
 
+    assert page.assets == ()
     assert page.next_cursor is None
     assert page.completed_checkpoint == DiscoveryCheckpoint(completed_through=NOW)
+
+
+def test_numeric_string_next_page_is_converted_to_a_local_cursor_page() -> None:
+    client = FakeClient([search_response([], next_page="2"), search_response([])])
+    discovery = make_discovery(client)
+
+    first = discovery.discover_page(cursor=None, checkpoint=None, limit=10)
+    discovery.discover_page(cursor=first.next_cursor, checkpoint=None, limit=10)
+
+    assert client.calls[1]["page"] == 2
+
+
+def test_missing_next_page_is_a_redacted_protocol_error() -> None:
+    client = FakeClient([{"assets": {"items": []}}])
+
+    with pytest.raises(DiscoveryProtocolError) as exc_info:
+        make_discovery(client).discover_page(cursor=None, checkpoint=None, limit=10)
+
+    assert str(exc_info.value) == "Immich discovery response was invalid."
 
 
 def test_response_cannot_return_more_eligible_assets_than_requested() -> None:
@@ -166,7 +186,10 @@ def test_response_cannot_return_more_eligible_assets_than_requested() -> None:
         make_discovery(client).discover_page(cursor=None, checkpoint=None, limit=1)
 
 
-@pytest.mark.parametrize("next_page", [0, -1, True, "2"])
+@pytest.mark.parametrize(
+    "next_page",
+    [0, -1, True, "", " ", "0", "-1", "2.5", "not-a-page", 9_007_199_254_740_992],
+)
 def test_invalid_next_page_is_a_redacted_protocol_error(next_page: object) -> None:
     client = FakeClient([search_response([], next_page=next_page)])
 
@@ -221,6 +244,25 @@ def test_incremental_discovery_uses_one_second_overlap() -> None:
     assert client.calls[0]["updated_after"] == completed - timedelta(seconds=1)
 
 
+def test_incremental_overlap_underflow_is_a_redacted_protocol_error() -> None:
+    checkpoint = DiscoveryCheckpoint(completed_through=datetime.min.replace(tzinfo=UTC))
+    client = FakeClient([search_response([])])
+
+    with pytest.raises(DiscoveryProtocolError) as exc_info:
+        make_discovery(client).discover_page(cursor=None, checkpoint=checkpoint, limit=10)
+
+    assert str(exc_info.value) == "Immich discovery response was invalid."
+
+
+def test_malformed_image_mime_type_is_a_redacted_protocol_error() -> None:
+    client = FakeClient([search_response([item(mime_type="image/")])])
+
+    with pytest.raises(DiscoveryProtocolError) as exc_info:
+        make_discovery(client).discover_page(cursor=None, checkpoint=None, limit=10)
+
+    assert str(exc_info.value) == "Immich discovery response was invalid."
+
+
 def test_cursor_round_trip_preserves_fixed_window() -> None:
     cursor = DiscoveryCursor(
         next_page=7,
@@ -232,6 +274,24 @@ def test_cursor_round_trip_preserves_fixed_window() -> None:
 
     assert DiscoveryCursorCodec.decode(encoded) == cursor
     assert len(encoded) <= DiscoveryCursorCodec.MAX_LENGTH
+
+
+def test_retrying_a_cursor_reuses_the_exact_window() -> None:
+    client = FakeClient(
+        [
+            search_response([], next_page="2"),
+            RuntimeError("temporary failure"),
+            search_response([]),
+        ]
+    )
+    discovery = make_discovery(client)
+    first = discovery.discover_page(cursor=None, checkpoint=None, limit=10)
+
+    with pytest.raises(RuntimeError):
+        discovery.discover_page(cursor=first.next_cursor, checkpoint=None, limit=10)
+    discovery.discover_page(cursor=first.next_cursor, checkpoint=None, limit=10)
+
+    assert client.calls[1] == client.calls[2]
 
 
 def test_cursor_can_resume_with_a_fresh_adapter_instance() -> None:
@@ -272,6 +332,7 @@ def cursor_payload(**overrides: object) -> str:
         cursor_payload(upper="2026-08-23T12:00:00"),
         cursor_payload(lower="2026-08-23T12:00:01Z"),
         cursor_payload(upper="0001-01-01T00:00:00Z"),
+        cursor_payload(nextPage=9_007_199_254_740_992),
         "A" * 1025,
     ],
 )
