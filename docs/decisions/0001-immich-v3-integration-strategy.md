@@ -88,10 +88,26 @@ boundary.
 
 ## Security and privacy
 
+- The workflow/plugin bridge and the Python worker are separate trust
+  boundaries. Every bridge intake call must authenticate and authorize through
+  a bridge-specific runtime credential or a mutually authenticated channel.
+  The concrete mechanism remains adapter-dependent (for example, mTLS or a
+  separate high-entropy runtime secret) and is not considered implemented by
+  this ADR.
+- Immich's internal workflow `authToken` must never leave the Immich process or
+  be forwarded to, or reused as, a worker credential.
+- Intake must safely reject unauthenticated, stale, unacceptably future-dated,
+  duplicated, or replayed events. Event ID and event time provide the basis for
+  freshness and replay checks; durable idempotency remains behind the Python
+  application boundary.
+- Bound intake payload size, identifier lengths, acceptance rate or
+  concurrency, and request timeouts. Reject over-limit requests before they
+  reach the worker queue.
 - Use separate, least-privilege Immich API keys for discovery/read access and
   explicitly supported review-album writes. Do not request delete permission.
-- Keep API keys, private Immich URLs, and other credentials in runtime
-  configuration only. Never place them in source, ADRs, fixtures, or logs.
+- Keep bridge credentials, API keys, private Immich URLs, and other credentials
+  in runtime configuration only. They must never enter an intake payload, a
+  normalized `WorkRequest`, logs, or persisted candidates.
 - Restrict plugin HTTP calls to an explicit `allowedHosts` list. The bridge must
   not broaden that list or use arbitrary outbound destinations.
 - Send only normalized asset/event identity from the bridge. Do not send image
@@ -158,6 +174,9 @@ duplicate events, while no integration path can delete assets automatically.
   and plugin surface is selected and tested.
 - Add fakes for duplicate delivery, missing capabilities, permission denial,
   timeout, and unsupported-version fallback.
+- Add fakes/tests for invalid bridge credentials, stale and unacceptably
+  future-dated events, replayed or duplicate event IDs, oversized payloads,
+  and credential/token redaction.
 
 ## References
 
@@ -165,4 +184,4 @@ duplicate events, while no integration path can delete assets automatically.
 - [Immich July 2026 recap](https://immich.app/blog/2026-july-recap)
 - [Immich API documentation](https://api.immich.app/)
 - [Immich API documentation announcement](https://immich.app/blog/immich-api-documentation)
-- [Immich workflow execution service](https://github.com/immich-app/immich/blob/main/server/src/services/workflow-execution.service.ts)
+- [Pinned Immich workflow execution service](https://github.com/immich-app/immich/blob/c98c20e9639257187e1e3b2efa9f1a7f3b465a9d/server/src/services/workflow-execution.service.ts)

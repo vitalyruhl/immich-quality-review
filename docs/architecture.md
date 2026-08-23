@@ -40,7 +40,12 @@ The `providers` package will define small, dependency-neutral interfaces. The fi
   allowed review-album operations. No adapter exposes automatic asset deletion.
 - **Optional bridge:** workflow/plugin support is preview- and SDK-coupled and
   can be disabled independently. Missing or unknown capabilities fall back to
-  API backfill/polling with redacted diagnostics.
+  API backfill/polling with redacted diagnostics. The bridge-to-worker intake is
+  its own trust boundary: bridge-specific runtime authentication or a mutually
+  authenticated channel is required, while Immich's internal workflow token is
+  never forwarded or reused. Freshness and replay checks use event identity and
+  timestamps, durable idempotency stays in the Python application, and payload
+  size, identifier length, rate/concurrency, and timeout limits bound intake.
 
 ## Future surfaces
 
