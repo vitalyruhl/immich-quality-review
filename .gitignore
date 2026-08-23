@@ -26,3 +26,9 @@ ENV/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+
+# temporary files and folders
+*.tmp
+*.log
+.temp
