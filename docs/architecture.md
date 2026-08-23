@@ -17,12 +17,47 @@ decision and upstream evidence.
 
 1. API backfill/polling and, optionally, an event-intake adapter produce the same
    provider-neutral work request.
-2. The application boundary deduplicates work and persists a resume cursor.
+2. A future application boundary will deduplicate work and persist a resume
+   cursor behind an injected state port.
 3. The worker obtains an image representation suitable for analysis.
 4. A quality orchestrator asks enabled providers for metric observations.
 5. A scoring layer turns observations into explainable review candidates.
 6. An Immich output adapter creates or updates a review destination without
    deleting assets.
+
+## Implemented integration contracts
+
+The application-facing boundary is defined by small Python protocols:
+
+- `AssetDiscoveryPort` returns one bounded `DiscoveryPage` at a time.
+- `AssetContentPort` reads asset content with a caller-provided byte limit.
+- `CapabilityPort` reports `IntegrationCapabilities`.
+- `ReviewSynchronizationPort` accepts only explicitly allowed review
+  synchronization for a sequence of asset IDs.
+- `WorkSink` accepts a normalized `WorkRequest` from either
+  `WorkSource.API_BACKFILL` or `WorkSource.WORKFLOW_EVENT`.
+
+`DiscoveryDispatcher` forwards one page to the same `WorkSink` used by event
+intake and returns only the next cursor. These contracts expose no delete,
+trash, hide, or source-mutation operation.
+
+## Immich API capability boundary
+
+`ImmichClient` uses an injected `ImmichTransport`; this repository does not yet
+provide a concrete `urllib`, `httpx`, or `requests` transport. The transport is
+configured for the public API base `/api`, while client paths are relative to
+that base. Capability probing first calls the unauthenticated stable
+`GET /server/version` endpoint and strictly validates the version fields. Only
+Immich major version 3 proceeds to the authenticated stable `GET /server/about`
+probe, which requires the least-privilege `server.about` permission and sends
+the exact `x-api-key` header. Unknown majors fail safe before authenticated
+follow-up or writes. Timeouts, response limits, authentication failures,
+permission failures, malformed JSON, and invalid response shapes are surfaced
+through redacted typed errors.
+
+Workflow-event support is never inferred from a version number. It is reported
+only when separately configured at runtime; API compatibility and polling
+fallback remain available when event intake is disabled.
 
 ## Provider boundary
 
@@ -44,12 +79,23 @@ The `providers` package will define small, dependency-neutral interfaces. The fi
   its own trust boundary: bridge-specific runtime authentication or a mutually
   authenticated channel is required, while Immich's internal workflow token is
   never forwarded or reused. Freshness and replay checks use event identity and
-  timestamps, durable idempotency stays in the Python application, and payload
-  size, identifier length, rate/concurrency, and timeout limits bound intake.
+  timestamps, durable idempotency stays in an injected replay guard, and
+  payload size, identifier length, freshness, and timeout limits bound intake.
+
+The implemented `WorkflowEventIntake` accepts only raw UTF-8 JSON containing
+`eventId`, `assetId`, and timezone-aware `occurredAt`. A separately injected
+bridge credential is authenticated before normalization. Payloads are bounded
+before JSON processing, identifiers are length-limited, events are checked for
+freshness, and `ReplayGuard.claim` must atomically succeed before the shared
+`WorkSink` receives one request. The runtime secret is not Immich's internal
+workflow `authToken`, and neither credential nor raw payload is forwarded.
+Durable replay storage is intentionally outside this issue.
 
 ## Future surfaces
 
 FastAPI and a web UI are optional consumers of the same worker-facing domain
 model. They must not be required to run an analysis job. Likewise, Workflows
 and external plugins are optional event sources; they never replace API
-backfill or compatibility behavior.
+backfill or compatibility behavior. No concrete HTTP server, live-network
+adapter, WASM plugin, asset-download pipeline, album synchronization, or
+durable replay store is implemented yet.
