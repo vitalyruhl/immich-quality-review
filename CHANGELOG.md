@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Provider-neutral integration ports for bounded review work.
+- A version-aware Immich v3 API capability client.
+- Authenticated, bounded workflow-event intake with freshness and replay guards.
+
 ## [0.1.0] - 2026-08-23
 
 ### Added
