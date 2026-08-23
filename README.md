@@ -6,7 +6,7 @@
 
 ## Motivation
 
-Large photo libraries often contain blurred, poorly exposed, low-contrast, or low-resolution assets that deserve a second look. This project will analyze assets through the Immich API and surface review candidates for people to decide on manually.
+Large photo libraries often contain blurred, poorly exposed, low-contrast, or low-resolution assets that deserve a second look. This project will use the documented Immich API as its reliable baseline and may optionally accept event hints from compatible Immich v3 Workflows/plugins, then surface review candidates for people to decide on manually.
 
 **Safety principle: review candidates only; never delete assets automatically.**
 
@@ -15,7 +15,7 @@ Large photo libraries often contain blurred, poorly exposed, low-contrast, or lo
 - Blur and sharpness signals
 - Brightness, underexposure, and overexposure signals
 - Contrast and resolution checks
-- Incremental asset discovery through the Immich API
+- Initial and incremental asset discovery through the Immich API, with optional workflow/plugin event hints
 - A review album or equivalent workflow for flagged candidates
 - Optional ML/IQA providers behind a separate provider interface
 
@@ -23,7 +23,7 @@ The initial quality engine will use freely usable, conventional image-analysis t
 
 ## Architecture
 
-The first deployment target is a separate Docker worker. It will read asset metadata and image data through the Immich API, pass images to provider-based quality metrics, aggregate the results into review candidates, and write only the intended review state back through the API. A FastAPI service or web UI may be added later, without coupling the core worker to it.
+The first deployment target is a separate Docker worker. The documented Immich API remains the baseline for backfill, asset metadata/content, compatibility fallback, and review synchronization. A thin optional workflow/plugin bridge may provide event-driven intake, but it does not contain quality logic and is not required to run the worker. A FastAPI service or web UI may be added later, without coupling the core worker to either transport or presentation layer.
 
 See [the architecture note](docs/architecture.md) for the intended boundaries.
 
