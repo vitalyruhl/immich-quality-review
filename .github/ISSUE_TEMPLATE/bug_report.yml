@@ -1,0 +1,28 @@
+name: Bug report
+description: Report unexpected behavior in immich-quality-review.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for reporting a bug. Do not include secrets, private URLs, or personal image data.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: Include commands and a minimal example where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: OS, Python version, project version, and deployment method.
+    validations:
+      required: true
