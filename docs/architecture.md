@@ -38,8 +38,28 @@ The application-facing boundary is defined by small Python protocols:
   `WorkSource.API_BACKFILL` or `WorkSource.WORKFLOW_EVENT`.
 
 `DiscoveryDispatcher` forwards one page to the same `WorkSink` used by event
-intake and returns only the next cursor. These contracts expose no delete,
-trash, hide, or source-mutation operation.
+intake and returns `DiscoveryProgress` with either an opaque resume cursor or a
+terminal checkpoint. These contracts expose no delete, trash, hide, archive,
+or source-mutation operation.
+
+`ImmichDiscovery` uses the stable authenticated `POST /search/metadata`
+operation with `asset.read`. The MVP admits only `IMAGE` assets on the
+`timeline` with a non-empty `image/*` MIME type, valid timezone-aware creation
+and update timestamps, and available, non-trashed source state. Videos, audio,
+other asset types, archive/hidden/locked visibility, trashed assets, offline
+assets, and malformed required fields are excluded or rejected at the adapter
+boundary according to their category.
+
+Each traversal captures one fixed upper timestamp. Incremental traversal starts
+at the previous completed checkpoint minus a one-second overlap. Every page
+reuses that same window. The versioned URL-safe cursor contains only its next
+page and window boundaries; a terminal page returns the upper boundary as its
+checkpoint, and a failed page does not advance it. Results are sorted by
+`updated_at` and then asset ID, with identical in-page duplicates collapsed and
+conflicting duplicates rejected. API discovery remains authoritative; workflow
+hints continue to produce ordinary `WorkRequest` values and do not replace
+backfill. Cross-page and cross-source duplicates remain visible for durable
+deduplication in Issue #22.
 
 ## Immich API capability boundary
 

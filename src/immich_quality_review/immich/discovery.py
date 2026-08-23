@@ -17,6 +17,19 @@ from immich_quality_review.application.discovery import (
 
 from .client import ImmichClient
 
+type AssetRecord = tuple[
+    str,
+    str,
+    str,
+    bool,
+    bool,
+    str,
+    datetime,
+    datetime,
+    int | None,
+    int | None,
+]
+
 
 class ImmichDiscoveryError(Exception):
     """Base class for redacted discovery failures."""
@@ -112,6 +125,8 @@ class DiscoveryCursorCodec:
             raise DiscoveryCursorError
         lower = _parse_cursor_datetime(payload["lower"], allow_none=True)
         upper = _parse_cursor_datetime(payload["upper"], allow_none=False)
+        if upper is None:
+            raise DiscoveryCursorError
         try:
             return DiscoveryCursor(next_page=next_page, lower=lower, upper=upper)
         except ValueError:
@@ -221,7 +236,7 @@ class ImmichDiscovery:
         ):
             raise DiscoveryProtocolError
 
-        records: dict[str, tuple[object, ...]] = {}
+        records: dict[str, AssetRecord] = {}
         for item in items:
             record = cls._parse_item(item)
             asset_id = record[0]
@@ -237,7 +252,7 @@ class ImmichDiscovery:
         return tuple(descriptors), next_page
 
     @classmethod
-    def _parse_item(cls, item: object) -> tuple[object, ...]:
+    def _parse_item(cls, item: object) -> AssetRecord:
         if not isinstance(item, dict) or not cls._REQUIRED_ITEM_FIELDS.issubset(item):
             raise DiscoveryProtocolError
         asset_id = item["id"]
@@ -273,7 +288,7 @@ class ImmichDiscovery:
         )
 
     @staticmethod
-    def _is_eligible(record: tuple[object, ...]) -> bool:
+    def _is_eligible(record: AssetRecord) -> bool:
         (
             _,
             asset_type,
@@ -296,7 +311,7 @@ class ImmichDiscovery:
         )
 
     @staticmethod
-    def _to_descriptor(record: tuple[object, ...]) -> AssetDescriptor:
+    def _to_descriptor(record: AssetRecord) -> AssetDescriptor:
         (
             asset_id,
             _,
