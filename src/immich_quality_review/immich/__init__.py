@@ -10,6 +10,9 @@ from .client import (
     ServerVersion,
 )
 from .events import (
+    AdmissionLimiter,
+    ConcurrencyAdmissionLimiter,
+    EventAdmissionError,
     EventAuthenticationError,
     EventAuthenticator,
     EventFreshnessError,
@@ -23,12 +26,14 @@ from .transport import (
     HttpRequest,
     HttpResponse,
     ImmichTransport,
+    TransportError,
     TransportTimeoutError,
 )
 
 __all__ = [
     "EventAuthenticator",
     "EventAuthenticationError",
+    "EventAdmissionError",
     "EventFreshnessError",
     "EventPayloadError",
     "EventReplayError",
@@ -41,9 +46,12 @@ __all__ = [
     "ImmichProtocolError",
     "ImmichTimeoutError",
     "ImmichTransport",
+    "AdmissionLimiter",
+    "ConcurrencyAdmissionLimiter",
     "ReplayGuard",
     "ServerVersion",
     "StaticSecretAuthenticator",
     "TransportTimeoutError",
+    "TransportError",
     "WorkflowEventIntake",
 ]

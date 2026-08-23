@@ -80,7 +80,8 @@ The `providers` package will define small, dependency-neutral interfaces. The fi
   authenticated channel is required, while Immich's internal workflow token is
   never forwarded or reused. Freshness and replay checks use event identity and
   timestamps, durable idempotency stays in an injected replay guard, and
-  payload size, identifier length, freshness, and timeout limits bound intake.
+  payload size, identifier length, freshness, concurrency, and timeout limits
+  bound intake.
 
 The implemented `WorkflowEventIntake` accepts only raw UTF-8 JSON containing
 `eventId`, `assetId`, and timezone-aware `occurredAt`. A separately injected
@@ -89,7 +90,9 @@ before JSON processing, identifiers are length-limited, events are checked for
 freshness, and `ReplayGuard.claim` must atomically succeed before the shared
 `WorkSink` receives one request. The runtime secret is not Immich's internal
 workflow `authToken`, and neither credential nor raw payload is forwarded.
-Durable replay storage is intentionally outside this issue.
+Admission is bounded by an injected non-blocking limiter (with a conservative
+single-slot default), and replay retention is measured from the current
+acceptance time. Durable replay storage is intentionally outside this issue.
 
 ## Future surfaces
 

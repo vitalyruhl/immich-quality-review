@@ -109,3 +109,16 @@ def test_dispatcher_rejects_non_positive_limit_before_discovery_call() -> None:
         dispatcher.dispatch_page(cursor=None, limit=0)
 
     assert discovery.calls == []
+
+
+def test_dispatcher_rejects_a_page_larger_than_the_requested_limit() -> None:
+    requests = tuple(
+        WorkRequest(asset_id=f"asset-{index}", source=WorkSource.API_BACKFILL) for index in range(3)
+    )
+    discovery = FakeDiscovery({None: DiscoveryPage(requests=requests, next_cursor=None)})
+    sink = FakeSink()
+
+    with pytest.raises(ValueError):
+        DiscoveryDispatcher(discovery=discovery, sink=sink).dispatch_page(cursor=None, limit=2)
+
+    assert sink.requests == []

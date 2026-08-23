@@ -1,10 +1,13 @@
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from immich_quality_review.application.integration import WorkRequest, WorkSink, WorkSource
 from immich_quality_review.immich.events import (
+    AdmissionLimiter,
+    EventAdmissionError,
     EventAuthenticationError,
     EventFreshnessError,
     EventPayloadError,
@@ -33,6 +36,20 @@ class FakeReplayGuard:
         return self.claim_result
 
 
+class FakeAdmissionLimiter:
+    def __init__(self, *, allowed: bool = True) -> None:
+        self.allowed = allowed
+        self.acquire_calls = 0
+        self.release_calls = 0
+
+    def try_acquire(self) -> bool:
+        self.acquire_calls += 1
+        return self.allowed
+
+    def release(self) -> None:
+        self.release_calls += 1
+
+
 def event_payload(
     *,
     event_id: str = "event-1",
@@ -58,15 +75,24 @@ def make_intake(
     max_age: timedelta = timedelta(minutes=5),
     max_future_skew: timedelta = timedelta(seconds=30),
     max_payload_bytes: int = 4096,
+    clock: Callable[[], datetime] | None = None,
+    admission_limiter: AdmissionLimiter | None = None,
 ) -> WorkflowEventIntake:
+    if clock is None:
+
+        def fixed_clock() -> datetime:
+            return now
+
+        clock = fixed_clock
     return WorkflowEventIntake(
         authenticator=StaticSecretAuthenticator(secret),
         replay_guard=guard,
         sink=sink,
-        now=now,
+        clock=clock,
         max_age=max_age,
         max_future_skew=max_future_skew,
         max_payload_bytes=max_payload_bytes,
+        admission_limiter=admission_limiter,
     )
 
 
@@ -86,7 +112,7 @@ def test_valid_event_is_normalized_once_into_the_shared_sink() -> None:
         occurred_at=datetime(2026, 8, 23, 12, 0, tzinfo=UTC),
     )
     assert len(sink.requests) == 1
-    assert guard.claims == [("event-1", datetime(2026, 8, 23, 12, 5, tzinfo=UTC))]
+    assert guard.claims == [("event-1", datetime(2026, 8, 23, 12, 7, tzinfo=UTC))]
 
 
 def test_wrong_credential_is_rejected_without_sink_or_guard_access() -> None:
@@ -98,6 +124,24 @@ def test_wrong_credential_is_rejected_without_sink_or_guard_access() -> None:
 
     assert sink.requests == []
     assert guard.claims == []
+
+
+def test_admission_limit_rejects_before_authentication_and_releases_after_acceptance() -> None:
+    denied = FakeAdmissionLimiter(allowed=False)
+    with pytest.raises(EventAdmissionError):
+        make_intake(FakeSink(), FakeReplayGuard(), admission_limiter=denied).accept(
+            event_payload(), credential="bridge-secret-with-enough-length"
+        )
+
+    assert denied.acquire_calls == 1
+    assert denied.release_calls == 0
+
+    allowed = FakeAdmissionLimiter()
+    make_intake(FakeSink(), FakeReplayGuard(), admission_limiter=allowed).accept(
+        event_payload(), credential="bridge-secret-with-enough-length"
+    )
+    assert allowed.acquire_calls == 1
+    assert allowed.release_calls == 1
 
 
 @pytest.mark.parametrize("secret", ["", "short"])
@@ -157,6 +201,15 @@ def test_identifiers_must_be_non_empty_and_bounded(event_id: str, asset_id: str)
         )
 
 
+@pytest.mark.parametrize("event_id,asset_id", [(" ", "asset-1"), ("event-1", " ")])
+def test_whitespace_only_identifiers_are_rejected(event_id: str, asset_id: str) -> None:
+    with pytest.raises(EventPayloadError):
+        make_intake(FakeSink(), FakeReplayGuard()).accept(
+            event_payload(event_id=event_id, asset_id=asset_id),
+            credential="bridge-secret-with-enough-length",
+        )
+
+
 def test_timezone_naive_timestamp_is_rejected() -> None:
     with pytest.raises(EventPayloadError):
         make_intake(FakeSink(), FakeReplayGuard()).accept(
@@ -177,6 +230,31 @@ def test_stale_and_future_events_are_rejected() -> None:
     with pytest.raises(EventFreshnessError):
         intake.accept(
             event_payload(occurred_at="2026-08-23T12:02:31+00:00"),
+            credential="bridge-secret-with-enough-length",
+        )
+
+
+def test_freshness_window_includes_exact_cutoffs() -> None:
+    credential = "bridge-secret-with-enough-length"
+    oldest = make_intake(FakeSink(), FakeReplayGuard())
+    oldest.accept(event_payload(occurred_at="2026-08-23T11:57:00+00:00"), credential=credential)
+    newest = make_intake(FakeSink(), FakeReplayGuard())
+    newest.accept(event_payload(occurred_at="2026-08-23T12:02:30+00:00"), credential=credential)
+
+
+def test_freshness_uses_the_current_clock_for_each_acceptance() -> None:
+    current = [datetime(2026, 8, 23, 12, 2, tzinfo=UTC)]
+    intake = make_intake(
+        FakeSink(),
+        FakeReplayGuard(),
+        clock=lambda: current[0],
+    )
+    intake.accept(event_payload(), credential="bridge-secret-with-enough-length")
+
+    current[0] = datetime(2026, 8, 23, 12, 10, tzinfo=UTC)
+    with pytest.raises(EventFreshnessError):
+        intake.accept(
+            event_payload(event_id="event-2", occurred_at="2026-08-23T12:04:00+00:00"),
             credential="bridge-secret-with-enough-length",
         )
 

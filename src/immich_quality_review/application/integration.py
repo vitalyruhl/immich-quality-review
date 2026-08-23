@@ -101,9 +101,11 @@ class DiscoveryDispatcher:
         self._sink = sink
 
     def dispatch_page(self, *, cursor: str | None, limit: int) -> str | None:
-        if limit <= 0:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise ValueError("limit must be positive")
         page = self._discovery.discover_page(cursor=cursor, limit=limit)
+        if len(page.requests) > limit:
+            raise ValueError("discovery page exceeded the requested limit")
         for request in page.requests:
             self._sink.submit(request)
         return page.next_cursor

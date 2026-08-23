@@ -2,10 +2,16 @@
 
 import hmac
 import json
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from threading import BoundedSemaphore
 from typing import Protocol
 
 from immich_quality_review.application.integration import WorkRequest, WorkSink, WorkSource
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class EventAuthenticationError(Exception):
@@ -13,6 +19,13 @@ class EventAuthenticationError(Exception):
 
     def __init__(self) -> None:
         super().__init__("Workflow event authentication failed.")
+
+
+class EventAdmissionError(Exception):
+    """The bounded event intake could not admit another request."""
+
+    def __init__(self) -> None:
+        super().__init__("Workflow event intake is at capacity.")
 
 
 class EventPayloadError(Exception):
@@ -40,6 +53,33 @@ class EventAuthenticator(Protocol):
     def authenticate(self, credential: str) -> bool:
         """Validate a bridge-specific runtime credential."""
         ...
+
+
+class AdmissionLimiter(Protocol):
+    def try_acquire(self) -> bool:
+        """Try to reserve one bounded intake slot without waiting."""
+        ...
+
+    def release(self) -> None:
+        """Release a previously acquired intake slot."""
+        ...
+
+
+class ConcurrencyAdmissionLimiter:
+    """Bound simultaneous intake work without blocking an untrusted caller."""
+
+    def __init__(self, max_concurrent: int = 1) -> None:
+        if isinstance(max_concurrent, bool) or not isinstance(max_concurrent, int):
+            raise ValueError("max_concurrent must be a positive integer")
+        if max_concurrent <= 0:
+            raise ValueError("max_concurrent must be a positive integer")
+        self._slots = BoundedSemaphore(max_concurrent)
+
+    def try_acquire(self) -> bool:
+        return self._slots.acquire(blocking=False)
+
+    def release(self) -> None:
+        self._slots.release()
 
 
 class StaticSecretAuthenticator:
@@ -74,13 +114,12 @@ class WorkflowEventIntake:
         authenticator: EventAuthenticator,
         replay_guard: ReplayGuard,
         sink: WorkSink,
-        now: datetime,
+        clock: Callable[[], datetime] = _utc_now,
         max_age: timedelta = timedelta(minutes=5),
         max_future_skew: timedelta = timedelta(seconds=30),
         max_payload_bytes: int = 4096,
+        admission_limiter: AdmissionLimiter | None = None,
     ) -> None:
-        if now.tzinfo is None or now.utcoffset() is None:
-            raise ValueError("now must be timezone-aware")
         if max_age <= timedelta(0) or max_future_skew < timedelta(0):
             raise ValueError("freshness windows must be non-negative")
         if max_payload_bytes <= 0:
@@ -88,12 +127,21 @@ class WorkflowEventIntake:
         self._authenticator = authenticator
         self._replay_guard = replay_guard
         self._sink = sink
-        self._now = now
+        self._clock = clock
         self._max_age = max_age
         self._max_future_skew = max_future_skew
         self._max_payload_bytes = max_payload_bytes
+        self._admission_limiter = admission_limiter or ConcurrencyAdmissionLimiter()
 
     def accept(self, raw_payload: bytes, *, credential: str) -> WorkRequest:
+        if not self._admission_limiter.try_acquire():
+            raise EventAdmissionError
+        try:
+            return self._accept(raw_payload, credential=credential)
+        finally:
+            self._admission_limiter.release()
+
+    def _accept(self, raw_payload: bytes, *, credential: str) -> WorkRequest:
         if not self._authenticator.authenticate(credential):
             raise EventAuthenticationError
         if not isinstance(raw_payload, bytes) or len(raw_payload) > self._max_payload_bytes:
@@ -102,13 +150,13 @@ class WorkflowEventIntake:
         event_id = self._bounded_identifier(payload, "eventId")
         asset_id = self._bounded_identifier(payload, "assetId")
         occurred_at = self._parse_timestamp(payload)
-        if (
-            occurred_at < self._now - self._max_age
-            or occurred_at > self._now + self._max_future_skew
-        ):
+        now = self._clock()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("clock must return a timezone-aware datetime")
+        if occurred_at < now - self._max_age or occurred_at > now + self._max_future_skew:
             raise EventFreshnessError
 
-        expires_at = occurred_at + self._max_age
+        expires_at = now + self._max_age
         if not self._replay_guard.claim(event_id, expires_at):
             raise EventReplayError
         request = WorkRequest(
@@ -133,7 +181,7 @@ class WorkflowEventIntake:
     @staticmethod
     def _bounded_identifier(payload: dict[str, object], key: str) -> str:
         value = payload.get(key)
-        if not isinstance(value, str) or not value or len(value) > 128:
+        if not isinstance(value, str) or not value.strip() or len(value) > 128:
             raise EventPayloadError
         return value
 

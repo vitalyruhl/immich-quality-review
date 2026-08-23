@@ -1,4 +1,5 @@
 import json
+import math
 
 import pytest
 
@@ -37,6 +38,14 @@ def response(payload: object, *, status_code: int = 200) -> HttpResponse:
     )
 
 
+def about_payload() -> dict[str, object]:
+    return {
+        "licensed": False,
+        "version": "3.0.0",
+        "versionUrl": "https://example.invalid/version",
+    }
+
+
 def make_client(
     transport: FakeTransport,
     *,
@@ -55,7 +64,7 @@ def test_about_probe_uses_exact_authenticated_request_contract() -> None:
     transport = FakeTransport(
         [
             response({"major": 3, "minor": 0, "patch": 0, "prerelease": None}),
-            response({"version": "3.0.0"}),
+            response(about_payload()),
         ]
     )
     client = make_client(transport)
@@ -150,6 +159,44 @@ def test_transport_timeout_is_redacted() -> None:
     assert "private endpoint" not in str(exc_info.value)
 
 
+def test_unexpected_transport_failure_is_redacted() -> None:
+    transport = FakeTransport([RuntimeError("private endpoint and test-api-key")])
+
+    with pytest.raises(ImmichProtocolError) as exc_info:
+        make_client(transport).get_server_version()
+
+    assert str(exc_info.value) == "Immich response was invalid."
+    assert "private endpoint" not in str(exc_info.value)
+    assert "test-api-key" not in str(exc_info.value)
+
+
+def test_malformed_transport_response_is_redacted() -> None:
+    transport = FakeTransport([object()])  # type: ignore[list-item]
+
+    with pytest.raises(ImmichProtocolError) as exc_info:
+        make_client(transport).get_server_version()
+
+    assert str(exc_info.value) == "Immich response was invalid."
+
+
+def test_transport_representations_redact_credentials_and_response_body() -> None:
+    request = HttpRequest(
+        method="GET",
+        path="/server/about",
+        headers={"x-api-key": "test-api-key"},
+        timeout_seconds=2.5,
+        max_response_bytes=2048,
+    )
+    response_with_secret = HttpResponse(
+        status_code=200,
+        headers={},
+        body=b"private-response-body",
+    )
+
+    assert "test-api-key" not in repr(request)
+    assert "private-response-body" not in repr(response_with_secret)
+
+
 def test_oversized_response_is_rejected_without_body_in_exception() -> None:
     confidential_body = b"confidential-response-body"
     transport = FakeTransport([HttpResponse(status_code=200, headers={}, body=confidential_body)])
@@ -181,11 +228,55 @@ def test_invalid_authenticated_json_is_rejected() -> None:
         make_client(transport).probe_capabilities()
 
 
-def test_event_intake_disabled_keeps_api_and_polling_available() -> None:
+def test_explicit_non_json_content_type_is_rejected() -> None:
+    transport = FakeTransport(
+        [
+            HttpResponse(
+                status_code=200,
+                headers={"content-type": "text/plain"},
+                body=json.dumps({"major": 3, "minor": 0, "patch": 0, "prerelease": None}).encode(),
+            )
+        ]
+    )
+
+    with pytest.raises(ImmichProtocolError):
+        make_client(transport).get_server_version()
+
+
+def test_authenticated_about_response_requires_pinned_schema_fields() -> None:
     transport = FakeTransport(
         [
             response({"major": 3, "minor": 0, "patch": 0, "prerelease": None}),
             response({"version": "3.0.0"}),
+        ]
+    )
+
+    with pytest.raises(ImmichProtocolError):
+        make_client(transport).probe_capabilities()
+
+
+@pytest.mark.parametrize(
+    ("timeout_seconds", "max_response_bytes"),
+    [(math.nan, 2048), (math.inf, 2048), (2.5, True)],
+)
+def test_client_rejects_non_finite_timeout_and_non_integer_response_limit(
+    timeout_seconds: float, max_response_bytes: int | bool
+) -> None:
+    with pytest.raises(ValueError):
+        ImmichClient(
+            transport=FakeTransport([]),
+            api_key="test-api-key",
+            timeout_seconds=timeout_seconds,
+            max_response_bytes=max_response_bytes,
+            workflow_event_intake_configured=False,
+        )
+
+
+def test_event_intake_disabled_keeps_api_and_polling_available() -> None:
+    transport = FakeTransport(
+        [
+            response({"major": 3, "minor": 0, "patch": 0, "prerelease": None}),
+            response(about_payload()),
         ]
     )
 
@@ -201,7 +292,7 @@ def test_version_alone_never_enables_event_intake() -> None:
     transport = FakeTransport(
         [
             response({"major": 3, "minor": 0, "patch": 0, "prerelease": None}),
-            response({"version": "3.0.0"}),
+            response(about_payload()),
         ]
     )
 
@@ -214,7 +305,7 @@ def test_event_intake_requires_separate_local_configuration() -> None:
     transport = FakeTransport(
         [
             response({"major": 3, "minor": 0, "patch": 0, "prerelease": None}),
-            response({"version": "3.0.0"}),
+            response(about_payload()),
         ]
     )
 

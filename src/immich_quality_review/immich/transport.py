@@ -1,7 +1,7 @@
 """Injectable transport contracts for the Immich API adapter."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 
@@ -11,7 +11,7 @@ class HttpRequest:
 
     method: str
     path: str
-    headers: Mapping[str, str]
+    headers: Mapping[str, str] = field(repr=False)
     timeout_seconds: float
     max_response_bytes: int
 
@@ -22,10 +22,14 @@ class HttpResponse:
 
     status_code: int
     headers: Mapping[str, str]
-    body: bytes
+    body: bytes = field(repr=False)
 
 
-class TransportTimeoutError(TimeoutError):
+class TransportError(Exception):
+    """Raised by a concrete transport for a bounded request failure."""
+
+
+class TransportTimeoutError(TransportError, TimeoutError):
     """Raised by a concrete transport when its bounded request times out."""
 
 
