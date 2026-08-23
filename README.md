@@ -2,7 +2,7 @@
 
 `immich-quality-review` is an independent community project for finding technically questionable images in an [Immich](https://immich.app/) library. It is not affiliated with or endorsed by Immich.
 
-> Status: early development / experimental. The project now provides provider-neutral integration contracts and adapter primitives, but it is not a complete asset-review service.
+> Status: early development / experimental. The project now provides provider-neutral integration contracts, bounded discovery, and durable SQLite processing-state primitives, but it is not a complete asset-review service.
 
 ## Motivation
 
@@ -16,6 +16,7 @@ Large photo libraries often contain blurred, poorly exposed, low-contrast, or lo
 - Brightness, underexposure, and overexposure signals
 - Contrast and resolution checks
 - Initial and incremental asset discovery through the Immich API, with optional workflow/plugin event hints
+- Durable processing state with revision-aware deduplication, restart-safe claims, and SQLite persistence
 - A review album or equivalent workflow for flagged candidates
 - Optional ML/IQA providers behind a separate provider interface
 
@@ -23,7 +24,7 @@ The initial quality engine will use freely usable, conventional image-analysis t
 
 ## Architecture
 
-The planned deployment target is a separate Docker worker. The documented Immich API remains the baseline for backfill, asset metadata/content, compatibility fallback, and review synchronization. A thin optional workflow/plugin bridge may provide event-driven intake, but it does not contain quality logic and is not required to run the worker. The repository currently implements contracts and adapter primitives only: it does not yet include a complete worker, concrete HTTP transport, workflow server, WASM plugin, asset download, or album synchronization. A FastAPI service or web UI may be added later, without coupling the core worker to either transport or presentation layer.
+The planned deployment target is a separate Docker worker. The documented Immich API remains the baseline for backfill, asset metadata/content, compatibility fallback, and review synchronization. A thin optional workflow/plugin bridge may provide event-driven intake, but it does not contain quality logic and is not required to run the worker. The repository currently implements contracts and adapter primitives, including a durable provider-neutral SQLite state boundary: it does not yet include a complete worker, concrete HTTP transport, workflow server, WASM plugin, asset download, or album synchronization. A FastAPI service or web UI may be added later, without coupling the core worker to either transport or presentation layer.
 
 See [the architecture note](docs/architecture.md) for the intended boundaries.
 

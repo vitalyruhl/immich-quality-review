@@ -17,8 +17,9 @@ decision and upstream evidence.
 
 1. API backfill/polling and, optionally, an event-intake adapter produce the same
    provider-neutral work request.
-2. A future application boundary will deduplicate work and persist a resume
-   cursor behind an injected state port.
+2. The application state boundary deduplicates work by asset and analysis
+   revision, and persists a resume cursor or terminal checkpoint behind an
+   injected state port.
 3. The worker obtains an image representation suitable for analysis.
 4. A quality orchestrator asks enabled providers for metric observations.
 5. A scoring layer turns observations into explainable review candidates.
@@ -62,6 +63,32 @@ conflicting duplicates rejected. API discovery remains authoritative; workflow
 hints continue to produce ordinary `WorkRequest` values and do not replace
 backfill. Cross-page and cross-source duplicates remain visible for durable
 deduplication in Issue #22.
+
+## Durable processing state
+
+Issue #22 provides a provider-neutral `ProcessingStatePort` and a standard-
+library `SQLiteProcessingState` adapter. The work key is exactly
+`(asset_id, analysis_revision)`, so a new analysis revision starts independent
+work and independent discovery state without reusing an earlier checkpoint.
+
+The SQLite schema is version 1 and contains `work_items` and
+`discovery_state`. A discovery page inserts its provider-neutral work requests
+and advances its opaque cursor or terminal checkpoint in one `BEGIN IMMEDIATE`
+transaction. A failed transaction persists neither side; an exact replay is
+idempotent and does not increment the state generation. Stale incompatible
+generations are rejected without overwriting newer progress.
+
+Work items move through `pending`, `in_progress`, `succeeded`,
+`retryable_failure`, and `terminal_failure`. Claims use bounded leases and
+opaque tokens; expired claims can be recovered after restart. Retryable and
+terminal failures store only stable reason codes, never exception text.
+
+The adapter stores only operational identifiers, source, timestamps, lifecycle
+state, and opaque resume data. It does not store credentials, private URLs,
+event IDs or payloads, image bytes, filenames, EXIF data, or raw HTTP/errors.
+Retry schedules, backoff, retry limits, and configurable concurrency remain
+outside this boundary and belong to Issue #11. No state operation deletes,
+alters, or hides Immich assets.
 
 ## Immich API capability boundary
 
@@ -123,4 +150,5 @@ model. They must not be required to run an analysis job. Likewise, Workflows
 and external plugins are optional event sources; they never replace API
 backfill or compatibility behavior. No concrete HTTP server, live-network
 adapter, WASM plugin, asset-download pipeline, album synchronization, or
-durable replay store is implemented yet.
+event replay store is implemented yet; durable processing state is limited to
+the Issue #22 boundary described above.
