@@ -50,6 +50,42 @@ docker run --rm immich-quality-review
 
 Contributions and early design feedback are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), the [Code of Conduct](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) before participating.
 
+
+<br>
+<br>
+
+---
+
+## Donate
+
+<table align="center" width="100%" border="0" bgcolor:=#3f3f3f>
+<tr align="center">
+<td align="center">
+if you prefer a one-time donation
+
+[![donate-Paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://paypal.me/FamilieRuhl)
+
+</td>
+
+<td align="center">
+Become a patron, by simply clicking on this button (**very appreciated!**):
+
+[![Become a patron](https://c5.patreon.com/external/logo/become_a_patron_button.png)](https://www.patreon.com/join/6555448/checkout?ru=undefined)
+
+</td>
+</tr>
+</table>
+
+<br>
+<br>
+
+---
+
+## Copyright
+
+`2026 (c)Vitaly Ruhl`
+
+
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0 only](LICENSE).
