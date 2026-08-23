@@ -9,6 +9,13 @@ from .client import (
     ImmichTimeoutError,
     ServerVersion,
 )
+from .discovery import (
+    DiscoveryCursor,
+    DiscoveryCursorCodec,
+    DiscoveryCursorError,
+    DiscoveryProtocolError,
+    ImmichDiscovery,
+)
 from .events import (
     AdmissionLimiter,
     ConcurrencyAdmissionLimiter,
@@ -48,6 +55,11 @@ __all__ = [
     "ImmichTransport",
     "AdmissionLimiter",
     "ConcurrencyAdmissionLimiter",
+    "DiscoveryCursor",
+    "DiscoveryCursorCodec",
+    "DiscoveryCursorError",
+    "DiscoveryProtocolError",
+    "ImmichDiscovery",
     "ReplayGuard",
     "ServerVersion",
     "StaticSecretAuthenticator",

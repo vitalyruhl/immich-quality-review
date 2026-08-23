@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "immich-quality-review"
-version = "0.2.0"
+version = "0.3.0"
 description = "Review technical image quality in Immich without automatic deletion."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -37,9 +37,18 @@ Issues = "https://github.com/vitalyruhl/immich-quality-review/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/immich_quality_review"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/README.md",
+  "/pyproject.toml",
+  "/src/immich_quality_review",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --import-mode=importlib"
 
 [tool.ruff]
 target-version = "py312"

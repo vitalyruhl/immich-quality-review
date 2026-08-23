@@ -1,5 +1,6 @@
 import json
 import math
+from datetime import UTC, datetime
 
 import pytest
 
@@ -195,6 +196,74 @@ def test_transport_representations_redact_credentials_and_response_body() -> Non
 
     assert "test-api-key" not in repr(request)
     assert "private-response-body" not in repr(response_with_secret)
+
+
+def test_search_assets_uses_the_exact_authenticated_json_request_contract() -> None:
+    transport = FakeTransport([response({"assets": {"items": [], "nextPage": None}})])
+
+    payload = make_client(transport).search_assets(page=1, size=100)
+
+    assert payload == {"assets": {"items": [], "nextPage": None}}
+    assert transport.requests == [
+        HttpRequest(
+            method="POST",
+            path="/search/metadata",
+            headers={"x-api-key": "test-api-key", "content-type": "application/json"},
+            timeout_seconds=2.5,
+            max_response_bytes=2048,
+            body=(
+                b'{"order":"asc","page":1,"size":100,"type":"IMAGE",'
+                b'"visibility":"timeline","withDeleted":false,"withExif":false,'
+                b'"withPeople":false,"withStacked":false}'
+            ),
+        )
+    ]
+
+
+def test_search_assets_serializes_incremental_filters_as_normalized_utc_rfc3339() -> None:
+    transport = FakeTransport([response({"assets": {"items": [], "nextPage": None}})])
+
+    make_client(transport).search_assets(
+        page=2,
+        size=3,
+        updated_after=datetime(2026, 8, 23, 10, 0, 1, 123456, tzinfo=UTC),
+        updated_before=datetime(2026, 8, 23, 12, 0, tzinfo=UTC),
+    )
+
+    assert transport.requests[0].body == (
+        b'{"order":"asc","page":2,"size":3,"type":"IMAGE",'
+        b'"visibility":"timeline","withDeleted":false,"withExif":false,'
+        b'"withPeople":false,"withStacked":false,"updatedAfter":"2026-08-23T10:00:01.123456Z",'
+        b'"updatedBefore":"2026-08-23T12:00:00Z"}'
+    )
+
+
+@pytest.mark.parametrize("page", [0, -1, 2.5, True, 9_007_199_254_740_992])
+def test_search_assets_rejects_invalid_pages(page: object) -> None:
+    with pytest.raises(ValueError):
+        make_client(FakeTransport([])).search_assets(page=page, size=100)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("size", [0, 1001, 2.5, True])
+def test_search_assets_rejects_invalid_sizes(size: object) -> None:
+    with pytest.raises(ValueError):
+        make_client(FakeTransport([])).search_assets(size=size, page=1)  # type: ignore[arg-type]
+
+
+def test_search_assets_rejects_naive_or_reversed_time_filters() -> None:
+    with pytest.raises(ValueError):
+        make_client(FakeTransport([])).search_assets(
+            page=1,
+            size=100,
+            updated_after=datetime(2026, 8, 23, 12, 0),
+        )
+    with pytest.raises(ValueError):
+        make_client(FakeTransport([])).search_assets(
+            page=1,
+            size=100,
+            updated_after=datetime(2026, 8, 23, 13, 0, tzinfo=UTC),
+            updated_before=datetime(2026, 8, 23, 12, 0, tzinfo=UTC),
+        )
 
 
 def test_oversized_response_is_rejected_without_body_in_exception() -> None:

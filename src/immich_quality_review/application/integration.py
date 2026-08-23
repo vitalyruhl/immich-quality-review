@@ -6,6 +6,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
+from .discovery import DiscoveryCheckpoint, DiscoveryPage, DiscoveryProgress
+
 
 class WorkSource(StrEnum):
     """The supported sources of review work."""
@@ -44,14 +46,6 @@ class WorkRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class DiscoveryPage:
-    """One bounded page of normalized work and its optional resume cursor."""
-
-    requests: tuple[WorkRequest, ...]
-    next_cursor: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class IntegrationCapabilities:
     """A redacted capability report for the configured integration."""
 
@@ -64,7 +58,13 @@ class IntegrationCapabilities:
 
 
 class AssetDiscoveryPort(Protocol):
-    def discover_page(self, *, cursor: str | None, limit: int) -> DiscoveryPage:
+    def discover_page(
+        self,
+        *,
+        cursor: str | None,
+        checkpoint: DiscoveryCheckpoint | None,
+        limit: int,
+    ) -> DiscoveryPage:
         """Return exactly one bounded discovery page."""
         ...
 
@@ -100,12 +100,27 @@ class DiscoveryDispatcher:
         self._discovery = discovery
         self._sink = sink
 
-    def dispatch_page(self, *, cursor: str | None, limit: int) -> str | None:
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
-            raise ValueError("limit must be positive")
-        page = self._discovery.discover_page(cursor=cursor, limit=limit)
-        if len(page.requests) > limit:
+    def dispatch_page(
+        self,
+        *,
+        cursor: str | None,
+        checkpoint: DiscoveryCheckpoint | None,
+        limit: int,
+    ) -> DiscoveryProgress:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        if cursor is not None and checkpoint is not None:
+            raise ValueError("cursor and checkpoint cannot be provided together")
+        page = self._discovery.discover_page(
+            cursor=cursor,
+            checkpoint=checkpoint,
+            limit=limit,
+        )
+        if len(page.assets) > limit:
             raise ValueError("discovery page exceeded the requested limit")
-        for request in page.requests:
-            self._sink.submit(request)
-        return page.next_cursor
+        for asset in page.assets:
+            self._sink.submit(WorkRequest(asset_id=asset.asset_id, source=WorkSource.API_BACKFILL))
+        return DiscoveryProgress(
+            next_cursor=page.next_cursor,
+            completed_checkpoint=page.completed_checkpoint,
+        )

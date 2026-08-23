@@ -4,11 +4,14 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from immich_quality_review.application.integration import IntegrationCapabilities
 
 from .transport import HttpRequest, HttpResponse, ImmichTransport, TransportTimeoutError
+
+MAX_IMMICH_PAGE = 9_007_199_254_740_991
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +108,54 @@ class ImmichClient:
             prerelease = None
         return ServerVersion(major=major, minor=minor, patch=patch, prerelease=prerelease)
 
+    def search_assets(
+        self,
+        *,
+        page: int,
+        size: int,
+        updated_after: datetime | None = None,
+        updated_before: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Search the bounded timeline-image metadata contract."""
+        if isinstance(page, bool) or not isinstance(page, int) or not 1 <= page <= MAX_IMMICH_PAGE:
+            raise ValueError("page must be a positive integer")
+        if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= 1000:
+            raise ValueError("size must be between 1 and 1000")
+        if updated_after is not None:
+            self._validate_aware_datetime(updated_after, "updated_after")
+        if updated_before is not None:
+            self._validate_aware_datetime(updated_before, "updated_before")
+        if (
+            updated_after is not None
+            and updated_before is not None
+            and updated_after >= updated_before
+        ):
+            raise ValueError("updated_after must be before updated_before")
+
+        search_body: dict[str, object] = {
+            "order": "asc",
+            "page": page,
+            "size": size,
+            "type": "IMAGE",
+            "visibility": "timeline",
+            "withDeleted": False,
+            "withExif": False,
+            "withPeople": False,
+            "withStacked": False,
+        }
+        if updated_after is not None:
+            search_body["updatedAfter"] = self._format_query_timestamp(updated_after)
+        if updated_before is not None:
+            search_body["updatedBefore"] = self._format_query_timestamp(updated_before)
+        response = self._send(
+            method="POST",
+            path="/search/metadata",
+            authenticated=True,
+            headers={"content-type": "application/json"},
+            body=json.dumps(search_body, separators=(",", ":")).encode("utf-8"),
+        )
+        return self._parse_json_object(response)
+
     def probe_capabilities(self) -> IntegrationCapabilities:
         version = self.get_server_version()
         if version.major != self.SUPPORTED_MAJOR:
@@ -133,14 +184,25 @@ class ImmichClient:
             polling_fallback=True,
         )
 
-    def _send(self, *, path: str, authenticated: bool) -> HttpResponse:
-        headers = {"x-api-key": self._api_key} if authenticated else {}
+    def _send(
+        self,
+        *,
+        method: str = "GET",
+        path: str,
+        authenticated: bool,
+        headers: Mapping[str, str] | None = None,
+        body: bytes | None = None,
+    ) -> HttpResponse:
+        request_headers = {"x-api-key": self._api_key} if authenticated else {}
+        if headers is not None:
+            request_headers.update(headers)
         request = HttpRequest(
-            method="GET",
+            method=method,
             path=path,
-            headers=headers,
+            headers=request_headers,
             timeout_seconds=self._timeout_seconds,
             max_response_bytes=self._max_response_bytes,
+            body=body,
         )
         try:
             response = self._transport.send(request)
@@ -193,6 +255,16 @@ class ImmichClient:
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ImmichProtocolError
         return value
+
+    @staticmethod
+    def _validate_aware_datetime(value: object, name: str) -> None:
+        if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(f"{name} must be timezone-aware")
+
+    @classmethod
+    def _format_query_timestamp(cls, value: datetime) -> str:
+        cls._validate_aware_datetime(value, "timestamp")
+        return value.astimezone(UTC).isoformat(timespec="auto").replace("+00:00", "Z")
 
     @staticmethod
     def _format_version(version: ServerVersion) -> str:
