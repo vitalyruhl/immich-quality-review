@@ -4,9 +4,11 @@ Describe the change and its user impact.
 
 ## Validation
 
-- [ ] `pytest`
-- [ ] `ruff check .`
-- [ ] `ruff format --check .`
+- [ ] `uv sync --frozen`
+- [ ] `uv run ruff check .`
+- [ ] `uv run ruff format --check .`
+- [ ] `uv run pytest`
+- [ ] `uv build`
 
 ## Safety and licensing
 

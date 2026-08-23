@@ -18,11 +18,16 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install project and development tools
-        run: python -m pip install -e ".[dev]"
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - name: Synchronize locked environment
+        run: uv sync --frozen
       - name: Lint
-        run: ruff check .
+        run: uv run ruff check .
       - name: Check formatting
-        run: ruff format --check .
+        run: uv run ruff format --check .
       - name: Test
-        run: pytest
+        run: uv run pytest
+      - name: Build package
+        run: uv build
